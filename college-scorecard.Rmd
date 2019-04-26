@@ -1,0 +1,982 @@
+---
+title: "College Scorecard"
+author: "Anh Do"
+date: "4/17/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen = 999)
+```
+
+```{r loading-package}
+library(tidyverse)
+library(maps)
+library(highcharter)
+library(plotly)
+library(ggrepel)
+library(modelr)
+library(ggalt)
+library("RColorBrewer")
+library(wesanderson)
+library(ggthemes)
+library(gganimate)
+```
+
+```{r global-variables}
+excluded_states <- c("AK", "HI", "GU", "PR", "AS", "DC", "FM")
+```
+
+
+```{r extra-map-data}
+us_map_data <- read_csv("https://simplemaps.com/static/data/us-cities/uscitiesv1.5.csv")
+
+us_map_data <- us_map_data %>% rename(
+    CITY = city,
+    STATENAME = state_name
+)
+```
+
+
+```{r}
+# data_files <- list.files(path = "~/Downloads/CollegeScorecard_Raw_Data", pattern =  "*.csv", full.names = TRUE)
+# 
+# 
+# data_by_years = tibble(
+#     UNITID = character(),
+#     CITY = character(),
+#     STABBR = character(),
+#     UNEMP_RATE = double(),
+#     YEAR = integer()
+# )
+# 
+# # temp <- read_csv(data_files[14:14])
+# 
+# years = seq(1997, 2017)
+# 
+# for (i in 2:length(years)) {
+#     file = data_files[i]
+#     print(file)
+#     year = years[i]
+#     data_by_years <- rbind(data_by_years, read_csv(file) %>% 
+#               select(UNITID, CITY, STABBR, UNEMP_RATE) %>% 
+#               mutate(UNEMP_RATE = as.numeric(UNEMP_RATE),
+#                      YEAR = year))
+# }
+# 
+# data_by_years <- data_by_years %>%
+#     rename(state_id = STABBR)
+# 
+# processed_data_by_years <- left_join(data_by_years, us_map_data %>% 
+#                                     select(CITY, state_id, county_name, lat, lng), 
+#                                     by = c("CITY", "state_id")) 
+# 
+# processed_data_by_years <- add_column(processed_data_by_years, 
+#            STATENAME = state.name[match(processed_data_by_years$state_id, state.abb)], 
+#            .after = "state_id")
+# 
+# processed_data_by_years <- processed_data_by_years %>%
+#     filter(!state_id %in% excluded_states)
+```
+
+
+```{r}
+theme_set(theme_light())
+# theme_set(my_theme)
+```
+
+```{r}
+college_data_2017 <- read_csv("~/Downloads/CollegeScorecard_Raw_Data/MERGED2016_17_PP.csv") %>%
+    select(UNITID, CITY, STABBR, GRAD_DEBT_MDN_SUPP)
+
+college_data_2007 <- read_csv("~/Downloads/CollegeScorecard_Raw_Data/MERGED2006_07_PP.csv") %>%
+    select(UNITID, CITY, STABBR, GRAD_DEBT_MDN_SUPP)
+
+college_data_2007_2017 <- inner_join(college_data_2007, college_data_2017, by = c("UNITID", "CITY", "STABBR"))
+
+college_data_2007_2017 <- add_column(college_data_2007_2017, 
+                           STATENAME = state.name[match(college_data_2007_2017$STABBR, state.abb)], 
+                           .after = "STABBR")
+
+college_data_2007_2017 <- college_data_2007_2017 %>%
+    mutate_at(vars(starts_with("GRAD_DEBT")), as.numeric)
+
+college_data_2007_2017_summarise <- college_data_2007_2017 %>%
+    group_by(STATENAME) %>%
+    summarise(debt_2007 = median(GRAD_DEBT_MDN_SUPP.x, na.rm = TRUE),
+              debt_2017 = median(GRAD_DEBT_MDN_SUPP.y, na.rm = TRUE)) %>%
+    filter(!is.na(STATENAME)) 
+
+college_data_2007_2017_summarise %>%
+    mutate(STATENAME = fct_reorder(STATENAME, abs(debt_2017))) %>%
+    ggplot(aes(x=debt_2007, xend=debt_2017, y=STATENAME)) + 
+    geom_dumbbell(color="#a3c4dc", 
+                  size=2, 
+                  colour_x = "red",
+                  colour_xend = "blue") + 
+    # geom_label(aes(label = abs(debt_2017 - debt_2007)), hjust = -5) +
+    scale_x_continuous(labels = scales::dollar_format(), breaks = seq(0, 30000, 5000)) + 
+    annotate("text", label = "2007", x = 16000, y = 49.8, color = "red", size = 8) +
+    annotate("text", label = "2017", x = 26000, y = 49.8, color = "blue", size = 8) +
+    expand_limits(x = c(5000, 30000)) +
+    labs(x=NULL, 
+         y=NULL,
+         title="How Are Debts in Each State?",
+         subtitle = "Year 2007 and Year 2017 (Ordered by highest Debt in 2017)") +
+   theme(title = element_text(size = 20),
+        axis.text.x = element_text(face = "bold", color = "black", size = 15),
+        axis.text.y = element_text(color = "black", size = 15),
+        legend.text = element_text(color = "black", size = 15),
+        panel.grid.minor=element_blank(),
+        panel.grid.major.y=element_blank(),
+        panel.grid.major.x=element_line(),
+        axis.ticks=element_blank(),
+        legend.position="top",
+        panel.border=element_blank())
+
+# reorder by difference
+college_data_2007_2017_summarise %>%
+    mutate(STATENAME = fct_reorder(STATENAME, abs(debt_2017 - debt_2007))) %>%
+    ggplot(aes(x=debt_2007, xend=debt_2017, y=STATENAME)) + 
+    geom_dumbbell(color="#a3c4dc", 
+                  size=2, 
+                  colour_x = "red",
+                  colour_xend = "blue") + 
+    # geom_label(aes(label = abs(debt_2017 - debt_2007)), hjust = -5) +
+    scale_x_continuous(labels = scales::dollar_format()) +
+    expand_limits(x = 5000) +
+    annotate("text", label = "2007", x = 8000, y = 49.8, color = "red", size = 8) +
+    annotate("text", label = "2017", x = 19400, y = 49.8, color = "blue", size = 8) +
+    labs(x=NULL, 
+         y=NULL,
+         title="Which States Have Highest Debt Difference?",
+         subtitle = "Between Year 2007 and Year 2017") +
+   theme(title = element_text(size = 20),
+        axis.text.x = element_text(face = "bold", color = "black", size = 15),
+        axis.text.y = element_text(color = "black", size = 15),
+        legend.text = element_text(color = "black", size = 15),
+        panel.grid.minor=element_blank(),
+        panel.grid.major.y=element_blank(),
+        panel.grid.major.x=element_line(),
+        axis.ticks=element_blank(),
+        legend.position="top",
+        panel.border=element_blank())
+```
+
+
+
+```{r import-data}
+# UGDS: total enrollments
+
+major_data <- read_csv("~/Google Drive/Computer Science MSU/Spring 2019/Data Science/final-project/majors.csv")
+
+merged_data <- read_csv("~/Downloads/CollegeScorecard_Raw_Data/MERGED2016_17_PP.csv") %>%
+    select(UNITID, ADM_RATE, AGE_ENTRY, FEMALE, LATITUDE, LONGITUDE, TUITIONFEE_IN, TUITIONFEE_OUT)
+
+scorecard_elements <- read_csv("~/Google Drive/Computer Science MSU/Spring 2019/Data Science/final-project/Most-Recent-Cohorts-Scorecard-Elements.csv") %>% 
+    select(UNITID, CITY, STABBR, SAT_AVG, 
+           ACTCM25, ACTCM75, ACTCMMID, 
+           starts_with("PCIP"), 
+           UGDS, GRAD_DEBT_MDN_SUPP)
+
+# names(scorecard_elements)
+
+treasury_elements <- read_csv("~/Google Drive/Computer Science MSU/Spring 2019/Data Science/final-project/Most-Recent-Cohorts-Treasury-Elements.csv") %>%
+    select(UNITID, INSTNM, starts_with("PCT_"), 
+           MEDIAN_HH_INC, POVERTY_RATE, UNEMP_RATE, 
+           PCT25_EARN_WNE_P10, PCT75_EARN_WNE_P10, PCT90_EARN_WNE_P10,
+           MN_EARN_WNE_P10, MD_EARN_WNE_P10, 
+           MN_EARN_WNE_MALE0_P10, MN_EARN_WNE_MALE1_P10)
+
+college_data <- left_join(scorecard_elements, treasury_elements, by = "UNITID")
+college_data <- left_join(college_data, merged_data, by = "UNITID")
+
+# Only consider US states
+college_data <- college_data %>%
+    filter(STABBR %in% state.abb)
+
+college_data_majors <- college_data %>%
+    gather(starts_with("PCIP"), key = "major_id", value = "pct_awarded")
+
+college_data_majors <- left_join(college_data_majors, major_data, by = "major_id")
+
+# college_data %>%
+#     count(major_id, major_category)
+```
+
+```{r data-clearning}
+# convert debt to numbers
+# scorecard_elements_cleaned <- scorecard_elements %>%
+#     mutate(GRAD_DEBT_MDN_SUPP = as.numeric(GRAD_DEBT_MDN_SUPP))
+
+# add state names and divisions
+college_data <- add_column(college_data, 
+                           STATENAME = state.name[match(college_data$STABBR, state.abb)], 
+                           .after = "STABBR")
+
+college_data <- add_column(college_data, 
+                           DIVISION = state.division[match(college_data$STABBR, state.abb)], 
+                           .after = "STATENAME")
+
+college_data <- add_column(college_data, 
+                           REGION = state.region[match(college_data$STABBR, state.abb)], 
+                           .after = "DIVISION")
+
+# convert character columns to numeric
+college_data <- college_data %>%
+    mutate_at(vars(-UNITID:-REGION, -INSTNM), as.numeric)
+
+college_data <- college_data %>% 
+    filter(!STABBR %in% excluded_states)
+
+# add county name
+college_data_processed <- left_join(college_data, us_map_data %>% 
+                                    select(CITY, STATENAME, county_name), 
+                                    by = c("CITY", "STATENAME")) %>%
+    group_by(STATENAME) %>%
+    mutate_at(vars(-UNITID:-REGION, -INSTNM), 
+              ~ifelse(is.na(.x) & is.numeric(.x), median(.x, na.rm = TRUE), .x))
+
+# replace all na values with mean values
+# college_data_processed <- college_data_processed %>%
+#     group_by(STATENAME) %>%
+#     mutate_at(vars(-UNITID:-REGION, -INSTNM), ~ifelse(is.na(.x), mean(.x, na.rm = TRUE), .x))
+
+# college_data_majors <- college_data_majors %>% 
+#     mutate_at(vars(-UNITID:-REGION, -INSTNM, -major_id, -major_category), as.numeric)
+
+# scorecard_elements_cleaned %>%
+#     distinct(STATENAME, DIVISION) %>% View()
+```
+
+
+## What states have least/most debt?
+```{r}
+college_data_debt <- college_data %>%
+    group_by(STATENAME, DIVISION, REGION) %>%
+    summarise(median_debt = median(GRAD_DEBT_MDN_SUPP, na.rm = TRUE)) %>%
+    arrange(desc(median_debt)) %>%
+    ungroup(STATENAME) %>%
+    mutate(STATENAME = fct_reorder(STATENAME, median_debt)) 
+
+temp <- brewer.pal(n = 4, name = "Set1")
+# temp <- wes_palette(n = 4, name = "GrandBudapest2")
+colors = c("Northeast" = temp[1], "South" = temp[2], "North Central" = temp[3], "West" = "#f9c64d")
+# colors = c("Northeast" = "#66c2a5", "South" = "#3288bd", "North Central" = "#d73027", "West" = "#d1ff07")
+
+college_data_debt %>%
+    head(10) %>%
+    ggplot(aes(STATENAME, median_debt, fill = REGION)) +
+    geom_col() +
+    # geom_text(aes(y = median_debt + 50, label = scales::dollar(median_debt, accuracy = 2)), 
+    #           hjust = 0, vjust = 0, 
+    #           check_overlap = TRUE) +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    scale_fill_manual(values = colors) +
+    # scale_fill_viridis_d() +
+    # coord_flip() +
+    coord_polar(start = 0) +
+    labs(title = "Top 10 States with Most Debt after 10 years of graduation",
+         subtitle = "School Year 2017-2018",
+         x = NULL,
+         y = "Median Debt",
+         fill = NULL) +
+    theme(title = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          legend.text = element_text(color = "black", size = 15))
+
+college_data_debt %>%
+    tail(10) %>%
+    mutate(STATENAME = fct_reorder(STATENAME, -median_debt)) %>%
+    ggplot(aes(STATENAME, median_debt, fill = REGION)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::dollar_format(), breaks = seq(0, 13000, 2000)) +
+    scale_fill_manual(values = colors) +
+    coord_flip() +
+    # coord_polar() +
+    labs(title = "Top 10 States with Least Debt after 10 years of graduation",
+         subtitle = "School Year 2017-2018",
+         x = NULL,
+         y = "Median Debt",
+         fill = NULL) +
+    theme(title = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          legend.text = element_text(color = "black", size = 15),
+          legend.position = "bottom")
+
+college_data_debt %>%
+    ggplot(aes(DIVISION, median_debt, fill = DIVISION)) +
+    geom_boxplot(show.legend = FALSE) +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    # expand_limits(y = 1600) +
+    coord_flip() +
+    labs(title = "Median Debt among Divisions in the US",
+         subtitle = "School Year 2017-2018",
+         x = NULL,
+         y = "Debt") +
+    theme(title = element_text(size = 20),
+        axis.text.x = element_text(face = "bold", color = "black", size = 15),
+        axis.text.y = element_text(face = "bold", color = "black", size = 15),
+        legend.text = element_text(color = "black", size = 15))
+```
+
+```{r}
+# Create dataset
+data=college_data_debt %>%
+    transmute(individual = STATENAME,
+              group = REGION,
+              value = median_debt)
+
+# Set a number of 'empty bar' to add at the end of each group
+empty_bar=4
+to_add = data.frame( matrix(NA, empty_bar*nlevels(data$group), ncol(data)) )
+colnames(to_add) = colnames(data)
+to_add$group=rep(levels(data$group), each=empty_bar)
+data=rbind(data, to_add)
+data=data %>% arrange(group, value)
+data$id=seq(1, nrow(data))
+
+# Get the name and the y position of each label
+label_data=data
+number_of_bar=nrow(label_data)
+angle= 90 - 360 * (label_data$id-0.5) /number_of_bar     # I substract 0.5 because the letter must have the angle of the center of the bars. Not extreme right(1) or extreme left (0)
+label_data$hjust<-ifelse( angle < -90, 1, 0)
+label_data$angle<-ifelse(angle < -90, angle+180, angle)
+
+# Make the plot
+ggplot(data, aes(x=as.factor(id), y=value, fill=group)) +       # Note that id is a factor. If x is numeric, there is some space between the first bar
+  geom_bar(stat="identity", alpha=0.8) +
+  ylim(-10000,30000) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = unit(rep(-1,4), "cm") 
+  ) +
+  coord_polar() + 
+  geom_text(data=label_data, aes(x=id, y=value+1000, label=individual, hjust=hjust), color="black", fontface="bold",alpha=0.6, size=2.5, angle= label_data$angle, inherit.aes = FALSE ) 
+```
+
+
+```{r coord-polar-debt-states}
+data <- college_data_debt %>%
+    transmute(individual = STATENAME,
+              group = REGION,
+              value = median_debt)
+
+data = data %>% arrange(group, value)
+
+# Set a number of 'empty bar' to add at the end of each group
+empty_bar=5
+to_add = data.frame( matrix(NA, empty_bar*nlevels(data$group), ncol(data)) )
+colnames(to_add) = colnames(data)
+to_add$group=rep(levels(data$group), each=empty_bar)
+data=rbind(data, to_add)
+data=data %>% arrange(group)
+data$id=seq(1, nrow(data))
+ 
+# Get the name and the y position of each label
+label_data=data
+number_of_bar=nrow(label_data)
+angle= 90 - 360 * (label_data$id-0.5) /number_of_bar     # I substract 0.5 because the letter must have the angle of the center of the bars. Not extreme right(1) or extreme left (0)
+label_data$hjust<-ifelse( angle < -90, 1, 0)
+label_data$angle<-ifelse(angle < -90, angle+180, angle)
+ 
+# prepare a data frame for base lines
+base_data=data %>% 
+  group_by(group) %>% 
+  summarize(start=min(id), end=max(id) - empty_bar) %>% 
+  rowwise() %>% 
+  mutate(title=mean(c(start, end)))
+ 
+# prepare a data frame for grid (scales)
+grid_data = base_data
+grid_data$end = grid_data$end[ c( nrow(grid_data), 1:nrow(grid_data)-1)] + 1
+grid_data$start = grid_data$start - 1
+grid_data=grid_data[-1,]
+
+# grid_data_copy <- grid_data %>% add_row(group = "Temp", start = 2, end = 0, title = 12.4) %>% head(3)
+ 
+# Make the plot
+ggplot(data, aes(x=as.factor(id), y=value, fill=group)) +       # Note that id is a factor. If x is numeric, there is some space between the first bar
+  
+  geom_bar(aes(x=as.factor(id), y=value, fill=group), stat="identity", alpha=1) +
+  
+  # Add a val=100/75/50/25 lines. I do it at the beginning to make sur barplots are OVER it.
+  geom_segment(data=grid_data, aes(x = end, y = 25000, xend = start, yend = 25000), colour = "grey", alpha=1, size=0.3 , inherit.aes = FALSE ) +
+  geom_segment(data=grid_data, aes(x = end, y = 20000, xend = start, yend = 20000), colour = "grey", alpha=1, size=0.3 , inherit.aes = FALSE ) +
+  geom_segment(data=grid_data, aes(x = end, y = 15000, xend = start, yend = 15000), colour = "grey", alpha=1, size=0.3 , inherit.aes = FALSE ) +
+  geom_segment(data=grid_data, aes(x = end, y = 10000, xend = start, yend = 10000), colour = "grey", alpha=1, size=0.3 , inherit.aes = FALSE ) +
+  geom_segment(data=grid_data, aes(x = end, y = 5000, xend = start, yend = 5000), colour = "grey", alpha=1, size=0.3 , inherit.aes = FALSE ) +
+  
+  # Add text showing the value of each 100/75/50/25 lines
+  annotate("text", x = rep(max(data$id),5), y = c(5000, 10000, 15000, 20000, 25000), label = c("$5,000", "$10,000", "$15,000", "$20,000", "$25,000") , color="black", alpha = 0.65, size=4 , angle=0, fontface="bold", hjust=1.1) +
+  
+  geom_bar(aes(x=as.factor(id), y=value, fill=group), stat="identity", alpha=1) +
+    scale_fill_manual(values = colors) +
+  ylim(-12000,30000) +
+  theme_minimal() +
+  theme(
+    legend.position = "none",
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    panel.grid = element_blank(),
+    plot.margin = unit(rep(-1,4), "cm") 
+  ) +
+  coord_polar() + 
+  geom_text(data=label_data, aes(x=id, y=value+1000, label=individual, hjust=hjust), color="black", fontface="bold",alpha=0.8, size=5, angle= label_data$angle, inherit.aes = FALSE ) +
+  
+  # Add base line information
+  geom_segment(data=base_data, aes(x = start, y = -5, xend = end, yend = -5), colour = "black", alpha=0.8, size=0.6 , inherit.aes = FALSE )  +
+  geom_text(data=base_data, aes(x = title, y = -18, label=group), hjust=c(1,1,0,0), colour = "black", alpha=0.8, size=4, fontface="bold", inherit.aes = FALSE)
+
+data %>%
+    filter(!is.na(individual)) %>%
+    ggplot(aes(individual, value, fill = group)) +
+    geom_col() +
+    scale_fill_manual(values = colors) +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    coord_flip() +
+    facet_wrap(~ group, scales = "free_y") +
+    labs(y = NULL,
+         x = NULL) +
+    theme(axis.text.x = element_text(color = "black", size = 15),
+        axis.text.y = element_text(face = "bold", color = "black", size = 20),
+        legend.text = element_text(color = "black", size = 20),
+           strip.text = element_text(size = 15))
+```
+
+## Standardized Test
+Let's look at standardized test scores both in __SAT__ and __ACT__.
+
+### Average SAT Score within divisions
+```{r}
+p <- college_data %>%
+    ggplot(aes(DIVISION, SAT_AVG, fill = DIVISION)) +
+    geom_boxplot(show.legend = FALSE) +
+    scale_y_continuous(labels = scales::comma_format(), breaks = seq(0, 1800, 200)) +
+    expand_limits(y = 1600) +
+    coord_flip() +
+    labs(title = "Average SAT Scores within Divisions in the US",
+         subtitle = "School Year 2017-2018",
+         x = NULL,
+         y = "Score") +
+    theme(title = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 20),
+          axis.text.y = element_text(face = "bold", color = "black", size = 20),
+          legend.text = element_text(color = "black", size = 20)) + 
+    transition_states(DIVISION,
+                      transition_length = 2,
+                      state_length = 1) +
+    enter_fade() +
+    exit_shrink() +
+    shadow_mark() +
+    ease_aes('sine-in-out')
+
+
+animate(p, duration = 7, height = 1000, width = 1600, renderer = gifski_renderer(loop = FALSE))
+
+anim_save(filename = "box_plot.gif", path = "~/Documents/")
+```
+
+### 25th and 75th percentile ACT cumulative score
+```{r}
+college_data %>%
+    group_by(REGION, DIVISION) %>%
+    summarise(ACTCMMID = median(ACTCMMID, na.rm = TRUE),
+              ACTCM25 = median(ACTCM25, na.rm = TRUE),
+              ACTCM75 = median(ACTCM75, na.rm = TRUE)) %>%
+    mutate(DIVISION = fct_reorder(DIVISION, ACTCM75)) %>%
+    ggplot(aes(DIVISION, ACTCMMID, color = as.factor(REGION))) +
+    geom_point(size = 5) +
+    geom_errorbar(aes(ymin = ACTCM25, ymax = ACTCM75), size = 2, width = 0.5) +
+    scale_color_brewer(palette = "Dark2") +
+    coord_flip() +
+    scale_y_continuous(breaks = seq(18, 30, 2)) +
+    expand_limits(y = 18) +
+    labs(title = "ACT score distribution over divisions and regions",
+         subtitle = "25th percentile, median, and 75th percentile scores",
+         x = NULL,
+         y = "Score",
+         color = NULL) +
+    theme(title = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          legend.text = element_text(color = "black", size = 15),
+          legend.position = "bottom")
+```
+
+### Some histograms
+
+Histogram on debt and on enrollment
+
+```{r}
+college_data %>%
+    ggplot(aes(GRAD_DEBT_MDN_SUPP)) +
+    geom_histogram(bins = 50, fill = "#4286f4") +
+    scale_x_continuous(labels = scales::dollar_format())
+
+college_data %>%
+    filter(UGDS > 1000) %>%
+    ggplot(aes(UGDS)) +
+    geom_density(fill = "#4286f4") +
+    scale_x_log10()
+
+# college_data %>%
+#     count(UGDS, sort = TRUE) %>% View()
+```
+
+## Correlations
+This section examines correlations between some continuous variables in the dataset
+### Correlation between ACT and SAT
+```{r}
+college_data %>%
+    ggplot(aes(ACTCMMID, SAT_AVG)) +
+    geom_hex() +
+    coord_cartesian() +
+    facet_wrap(REGION ~ .) +
+    labs(title = "Will Students Score High in ACT also Score High in SAT?",
+         subtitle = "Is there any difference of performance between regions?",
+         x = "ACT Score",
+         y = "SAT Score") +
+    theme(title = element_text(color = "black", size = 20),
+          legend.text = element_text(color = "black", size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 20),
+          axis.text.y = element_text(face = "bold", color = "black", size = 20),
+          strip.text = element_text(size = 20))
+```
+
+### Correlation between __Admission Rate__ and __Median Earning__ After 10 Years
+```{r}
+top_earnings <- college_data %>%
+    filter(ADM_RATE > 0) %>%
+    arrange(desc(PCT90_EARN_WNE_P10)) %>%
+    head(10)
+
+library(ggExtra)
+
+g <- college_data %>%
+    filter(ADM_RATE > 0) %>%
+    ggplot(aes(ADM_RATE, PCT90_EARN_WNE_P10)) +
+    geom_point(aes(color = REGION), size = 3) +
+    geom_encircle(data=top_earnings, aes(ADM_RATE, PCT90_EARN_WNE_P10), color = "red", size = 2, expand = 0.08) +
+    geom_smooth(aes(color = REGION), method = "lm", size = 2, se = FALSE) +
+    scale_x_continuous(labels = scales::percent_format(), breaks = seq(0, 1, 0.1)) +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    facet_wrap(~ REGION, scales = "free_x") +
+    labs(title = "Will Admission Rate Determine The Salary After Graduation?",
+         x = "Admission Rate", 
+         y = NULL,
+         color = NULL) +
+    theme(title = element_text(color = "black", size = 20),
+          legend.text = element_text(color = "black", size = 20),
+          strip.text = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          legend.position = "bottom")
+
+# p + transition_states(
+#         REGION, transition_length = 2,
+#         state_length = 1
+#     ) +
+#     enter_fade() +
+#     exit_shrink() +
+#     ease_aes('sine-in-out')
+# 
+# p
+# animate(p)
+
+g
+
+ggMarginal(g, type = "histogram", fill = "transparent")
+
+college_data %>%
+    ggplot(aes(ACTCMMID)) +
+    geom_density(aes(fill = factor(REGION)), alpha = 0.5) +
+    labs(title="Student ACT Scores Density plot", 
+         subtitle="Grouped By Regions",
+         x="Score",
+         y = NULL,
+         fill="Region") +
+    theme(title = element_text(color = "black", size = 20),
+          legend.text = element_text(color = "black", size = 20),
+          strip.text = element_text(size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          legend.position = "bottom")
+```
+
+### Correlation between __Admission Rate__ and __Unemployment Rate__ After 10 Years
+```{r}
+college_data %>%
+    ggplot(aes(UNEMP_RATE / 100, color = REGION)) +
+    geom_freqpoly(binwidth = 0.01) +
+    scale_x_continuous(labels = scales::percent_format())
+```
+
+
+```{r}
+college_data %>%
+    ggplot(aes(TUITIONFEE_IN, MD_EARN_WNE_P10)) +
+    geom_point(aes(color = REGION), alpha = 0.75, show.legend = FALSE) +
+    scale_x_continuous(labels = scales::dollar_format()) +
+    scale_y_continuous(labels = scales::dollar_format()) +
+    facet_wrap(REGION ~ .) +
+    labs(title = "Will Costly Schools Help Students Get Higher-Earning Jobs?",
+         subtitle = "Median salaries are collected 10 years after graduation",
+         caption = "School Year 2017-2018",
+         x = "In-state Tuition Fee",
+         y = NULL) +
+    theme(title = element_text(color = "black", size = 20),
+          legend.text = element_text(color = "black", size = 20),
+          axis.text.x = element_text(face = "bold", color = "black", size = 15),
+          axis.text.y = element_text(face = "bold", color = "black", size = 15),
+          strip.text = element_text(size = 20))
+
+# college_data %>%
+#     filter(!is.na(MD_EARN_WNE_P10)) %>%
+#     arrange(desc(MD_EARN_WNE_P10)) %>% 
+#     select(TUITIONFEE_IN, TUITIONFEE_OUT, ADM_RATE, MD_EARN_WNE_P10) %>%
+#     View()
+
+# college_data %>%
+#     filter(is.na(TUITIONFEE_IN)) %>%
+#     count()
+```
+
+## What majors earn the most?
+```{r}
+college_data %>%
+    gather(MN_EARN_WNE_MALE0_P10, MN_EARN_WNE_MALE1_P10, key = "gender", value = "gender_earning") %>% group_by(STATENAME) %>%
+    summarise(median_salary = median())
+```
+
+
+### playing with maps
+
+Earnings from all colleges in the US
+```{r}
+
+income_college_data <- college_data %>%
+    filter(!is.na(MD_EARN_WNE_P10) & !is.na(INSTNM)) %>%
+    distinct(INSTNM, .keep_all = TRUE)
+
+ income_college_data %>%
+    ggplot(aes(LONGITUDE, LATITUDE, size = MD_EARN_WNE_P10, color = MD_EARN_WNE_P10)) + 
+    borders("state") +
+    geom_point(alpha = 0.8) +
+    scale_color_continuous(labels = scales::dollar_format(),
+                           low = "#132B43", high = "#56B1F7") +
+    scale_size(labels = scales::dollar_format()) +
+    coord_map("albers", parameters = c(39, 45)) + 
+    labs(title = "Median Salary after 10 Years of Graduation",
+          x = NULL,
+          y = NULL,
+          color = NULL,
+          size = "Median Salary") +
+    theme(title = element_text(size = 20),
+          legend.text = element_text(color = "black", size = 20))
+```
+
+### Earnings of some Southern States
+```{r income-college-south}
+income_college_data_south <- income_college_data %>% 
+    filter(STABBR %in% c("MS", "AL", "TN", "LA", "AR"))
+
+state_map_data <- map_data("state")
+
+income_college_data_south %>%
+    arrange(MD_EARN_WNE_P10) %>%
+    ggplot(aes(LONGITUDE, LATITUDE, 
+                size = MD_EARN_WNE_P10, 
+                color = MD_EARN_WNE_P10)) +
+    borders("state", c("mississippi", "alabama", "tennesse", "louisiana", "arkansas"), colour = "black") +
+    # geom_map(data = state_map_data, map = subset(state_map_data, region %in% c("mississippi", "alabama", "tennesse", "louisiana")), aes(map_id = group), fill = NA, color = "pink") +
+    geom_point(alpha = 1, position = "jitter") +
+    # geom_label(data = income_college_data_south %>% arrange(MD_EARN_WNE_P10) %>% tail(3), aes(label = INSTNM), nudge_x = 2, nudge_y = 2) +
+    geom_label_repel(data=income_college_data_south %>% arrange(MD_EARN_WNE_P10) %>% tail(3),
+                    aes(label = INSTNM), size = 8,
+                    nudge_x = 2, nudge_y = 4.5) +
+    geom_label_repel(data=income_college_data_south %>% arrange(MD_EARN_WNE_P10) %>% head(3),
+                    aes(label = INSTNM), size = 8,
+                    nudge_x = 4, nudge_y = -6,
+                    max.iter = 20000) +
+    scale_color_continuous(labels = scales::dollar_format(),
+                           breaks = seq(25000, 125000, 25000),
+                           low = "red", high = "green") +
+    # scale_colour_gradient2(low = "red",
+    #                        mid = scales::muted("red"),
+    #                        high = "green",
+    #                        space = "Lab",
+    #                        labels = scales::dollar_format(),
+    #                        breaks = seq(25000, 125000, 25000)) +
+    scale_size(range = c(0, 10),
+               breaks = seq(25000, 125000, 25000), guide = "none") +
+    coord_map() + 
+    ylim(28, 40) +
+    # xlim(-95, -80) +
+    labs(title = "What Southern States That Graduates Make Most Money?",
+         subtitle = "Tennesse, Arkansas, Mississippi, Alabama, Louisiana",
+         x = NULL,
+         y = NULL,
+         color = "Median Salary",
+         size = NULL) +
+    theme(title = element_text(size = 20),
+          legend.text = element_text(color = "black", size = 20, margin = margin(t = 10)),
+          legend.key.height = unit(2, "lines")) +
+    # theme_void() +
+    annotate("text", x = -89.5, y = 33, label = "MS", size = 12) +
+    annotate("text", x = -92.5, y = 31, label = "LA", size = 12) +
+    annotate("text", x = -86.5, y = 33, label = "AL", size = 12) +
+    annotate("text", x = -86, y = 35.5, label = "TN", size = 12) +
+    annotate("text", x = -92.5, y = 35.7, label = "AR", size = 12)
+```
+
+## Chropleth maps
+Plot 90th percentile median salary of each state
+```{r}
+us_states <- map_data("state")
+
+us_states_abb <- tibble(
+    abb = state.abb,
+    long = state.center$x,
+    lat = state.center$y
+)
+
+
+# ggplot(us_states, aes(long, lat, group = group, fill = region)) +
+#     geom_polygon(color = "grey90", size = 0.1) +
+#     coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+#     guides(fill = FALSE)
+
+median_salary_states <- college_data %>%
+    filter(!is.na(PCT90_EARN_WNE_P10)) %>%
+    group_by(STATENAME, STABBR) %>%
+    summarise(median_salary = median(PCT90_EARN_WNE_P10)) %>%
+    # summarise(median_salary = sum(PCT90_EARN_WNE_P10, na.rm = TRUE) / n()) %>%
+    mutate(region = str_to_lower(STATENAME))
+
+salary_us_state <- left_join(median_salary_states, us_states, by = "region")
+
+ggplot(data = salary_us_state, aes(long, lat, group = group, fill = median_salary)) +
+    geom_polygon(color = "grey90", size = 0.1) +
+    geom_text(data = us_states_abb, aes(long, lat, label = abb), inherit.aes = FALSE) +
+    coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+    # scale_fill_brewer(palette = "Blues") +
+    # scale_fill_continuous(labels = scales::dollar_format()) +
+    scale_fill_viridis_c(labels = scales::dollar_format()) +
+    # guides(fill = guide_legend(nrow = 1)) +
+    xlim(-125, -70) +
+    theme_map() +
+    labs(title = "Which states have highest-earning graduates?",
+         subtitle = "Salaries calculated by median of 90th percentile all salaries",
+         caption = "Data collected in 2018",
+         fill = NULL) +
+    theme(title = element_text(size = 20),
+          legend.text = element_text(size = 20),
+          legend.title = element_text(size = 20),
+          legend.position = "bottom",
+          legend.justification = "center",
+          legend.key.width = unit(1.25, "in"))
+# 
+# ggplotly(g)
+
+#----- Unemployment Rates accross States ---- #
+unemployment_rate_states <- college_data_processed %>%
+    group_by(STATENAME, STABBR) %>%
+    summarise(mean_unemployment_rate = mean(UNEMP_RATE)) %>%
+    # summarise(median_salary = sum(PCT90_EARN_WNE_P10, na.rm = TRUE) / n()) %>%
+    mutate(region = str_to_lower(STATENAME))
+
+unemployment_us_state <- left_join(unemployment_rate_states, us_states, by = "region")
+
+ggplot(data = unemployment_us_state, aes(long, lat, group = group, fill = mean_unemployment_rate / 100)) +
+    geom_polygon(color = "grey90", size = 0.1) +
+    geom_text(data = us_states_abb, aes(long, lat, label = abb), inherit.aes = FALSE) +
+    coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+    # scale_fill_brewer(palette = "Blues") +
+    # scale_fill_continuous(labels = scales::dollar_format()) +
+    scale_fill_viridis_c(labels = scales::percent_format()) +
+    # guides(fill = guide_legend(nrow = 1)) +
+    xlim(-125, -70) +
+    theme_map() +
+    labs(title = "Which states have highest unemployment rate?",
+         caption = "Data collected in 2018",
+         fill = NULL) +
+    theme(title = element_text(size = 20),
+          legend.text = element_text(size = 20),
+          legend.title = element_text(size = 20),
+          legend.position = "bottom",
+          legend.justification = "center",
+          legend.key.width = unit(1.25, "in"))
+
+college_data_majors %>%
+    filter(STABBR == "MT") %>%
+    group_by(major_category) %>%
+    mutate(pct_awarded = as.numeric(pct_awarded)) %>%
+    summarise(pct_graduate = mean(pct_awarded, na.rm = TRUE)) %>%
+    mutate(major_category = fct_reorder(major_category, pct_graduate)) %>%
+    ggplot(aes(major_category, pct_graduate)) +
+    geom_col() +
+    scale_y_continuous(labels = scales::percent_format()) +
+    coord_flip() +
+    labs(x = NULL,
+         y = NULL)
+```
+
+## Animation for unemployment rates over 20 years (1998-2017)
+```{r}
+# year_state_unemployment <- processed_data_by_years %>% 
+#     group_by(YEAR, state_id, STATENAME) %>%
+#     summarise(mean_unemployment_rate = mean(UNEMP_RATE, na.rm = TRUE)) %>%
+#     mutate(region = str_to_lower(STATENAME)) %>%
+#     ungroup() %>% filter(YEAR < 2007)
+# 
+# year_state_unemployment_map <- left_join(year_state_unemployment, us_states, by = "region")
+# 
+# g <- ggplot(data = year_state_unemployment) +
+#     geom_polygon(data=year_state_unemployment_map, aes(long, lat, group = group, 
+#                      fill = mean_unemployment_rate / 100), 
+#                  color = "grey90", size = 0.1) +
+#     geom_text(data = us_states_abb, aes(long, lat, label = abb), inherit.aes = FALSE) +
+#     coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+#     # scale_fill_brewer(palette = "Blues") +
+#     # scale_fill_continuous(labels = scales::dollar_format()) +
+#     scale_fill_viridis_c(labels = scales::percent_format()) +
+#     # guides(fill = guide_legend(nrow = 1)) +
+#     xlim(-125, -70) +
+#     theme_map() +
+#     labs(title = "Year = {frame_time}",
+#          caption = "Data collected in 2018",
+#          fill = NULL) +
+#     theme(title = element_text(size = 20),
+#           legend.text = element_text(size = 20),
+#           legend.title = element_text(size = 20),
+#           legend.position = "bottom",
+#           legend.justification = "center",
+#           legend.key.width = unit(1.25, "in")) 
+# 
+# g
+# 
+# # g1 <- g + transition_time(YEAR) +
+# #     ease_aes('linear')
+# # 
+# # animate(g1, interval = .2, nframes = 20, fps = 10)
+# 
+# # ggplotly(g)
+# 
+# ggplot(year_state_unemployment, aes(mean_unemployment_rate)) +
+#     geom_histogram(bins = 30) +
+#     transition_time(YEAR) +
+#     ease_aes('linear') +
+#     labs(title = "Year = {frame_time}")
+```
+
+
+## 90 Percentile salary accross the counties
+```{r}
+us_counties <- map_data("county")
+
+median_salary_counties <- college_data_processed %>%
+    group_by(county_name) %>%
+    summarise(median_salary = median(PCT90_EARN_WNE_P10)) %>%
+    mutate(subregion = str_to_lower(county_name))
+
+salary_us_county <- left_join(us_counties, median_salary_counties, by = "subregion")
+
+ggplot(data = salary_us_county, aes(long, lat, group = group, fill = median_salary)) +
+    geom_polygon(color = "grey90", size = 0.1) +
+    # geom_text(data = us_states_abb, aes(long, lat, label = abb), inherit.aes = FALSE) +
+    coord_map(projection = "albers", lat0 = 39, lat1 = 45) +
+    # scale_fill_brewer(palette = "Blues") +
+    # scale_fill_continuous(labels = scales::dollar_format()) +
+    scale_fill_viridis_c(labels = scales::dollar_format()) +
+    # guides(fill = guide_legend(nrow = 1)) +
+    xlim(-125, -70) +
+    theme_map() +
+    labs(title = "Which counties have highest-earning graduates?",
+         subtitle = "Salaries calculated by median of 90th percentile all salaries",
+         caption = "Data collected in 2018",
+         fill = NULL) +
+    theme(title = element_text(size = 20),
+          legend.text = element_text(size = 20),
+          legend.title = element_text(size = 20),
+          legend.position = "bottom",
+          legend.justification = "center",
+          legend.key.width = unit(1.25, "in"))
+
+median_salary_counties %>% arrange(desc(median_salary))
+
+college_data_processed %>%
+    filter(STABBR == "MS") %>% View()
+
+college_data_processed %>%
+    arrange(desc(PCT90_EARN_WNE_P10)) %>% select(
+        CITY, STATENAME, PCT90_EARN_WNE_P10, INSTNM, county_name
+    ) %>% View()
+
+college_data_processed %>%
+    filter(county_name == "San Francisco") %>% select(
+        CITY, STATENAME, PCT90_EARN_WNE_P10, INSTNM, county_name
+    ) %>% View()
+```
+
+
+
+## Modeling
+Predict salary based on __admission rate__, __SAT score__, __ACT score__
+
+```{r}
+college_data_by_state <- college_data_processed %>%
+    group_by(STATENAME, DIVISION, REGION) %>%
+    nest()
+
+salary_state_model <- function(df) {
+    lm(MD_EARN_WNE_P10 ~ ADM_RATE + SAT_AVG + ACTCMMID, data = df)
+}
+
+college_data_by_state <- college_data_by_state %>%
+    mutate(model = purrr::map(college_data_by_state$data, salary_state_model))
+
+college_data_by_state <- college_data_by_state %>%
+    mutate(resids = purrr::map2(data, model, add_residuals))
+
+resids <- unnest(college_data_by_state, resids)
+
+glance <- college_data_by_state %>%
+    mutate(glance = purrr::map(model, broom::glance)) %>%
+    unnest(glance, .drop = TRUE)
+
+# resids %>%
+#     ggplot(aes())
+```
+
+```{r}
+model <- lm(MD_EARN_WNE_P10 ~ SAT_AVG, data=college_data)
+
+grid <- college_data_processed %>%
+    data_grid(SAT_AVG = seq_range(SAT_AVG, 30)) %>%
+    add_predictions(model, "MD_EARN_WNE_P10")
+
+ggplot(data=college_data_processed, aes(SAT_AVG, MD_EARN_WNE_P10)) +
+    geom_hex(bins = 50) +
+    geom_line(data=grid, color="red", size=1)
+
+college_data_processed %>%
+    filter(STABBR == "WI") %>%
+    View()
+
+college_data %>%
+    add_residuals(model, "lresid") %>%
+    ggplot(aes(SAT_AVG, lresid)) +
+    geom_hex(bins = 50) +
+    geom_ref_line(h = 0, colour = "red")
+```
+
+
+
